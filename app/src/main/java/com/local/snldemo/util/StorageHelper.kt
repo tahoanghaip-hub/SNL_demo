@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.MediaStore
+import com.local.snldemo.data.local.AppDatabase
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -105,6 +106,29 @@ object StorageHelper {
                 scaled.recycle()
             }
             file.absolutePath
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Converts a sender avatar Drawable to 64x64px Bitmap and delegates to saveSenderAvatarWebP.
+     */
+    fun saveSenderAvatarWebP(
+        context: Context,
+        packageName: String,
+        keyHash: String,
+        drawable: Drawable
+    ): String? {
+        return try {
+            val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, 64, 64)
+            drawable.draw(canvas)
+            val path = saveSenderAvatarWebP(context, packageName, keyHash, bitmap)
+            bitmap.recycle()
+            path
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -331,4 +355,3 @@ object StorageHelper {
         return size
     }
 }
-
