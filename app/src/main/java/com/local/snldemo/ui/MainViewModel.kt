@@ -1,12 +1,14 @@
 package com.local.snldemo.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.local.snldemo.data.local.AppDatabase
 import com.local.snldemo.data.local.AppMetadataEntity
 import com.local.snldemo.data.local.AppSummaryProjection
 import com.local.snldemo.data.local.NotificationEntity
+import com.local.snldemo.util.BackupRestoreHelper
 import com.local.snldemo.util.PreferenceManager
 import com.local.snldemo.util.ServiceControlHelper
 import com.local.snldemo.util.StorageHelper
@@ -353,5 +355,82 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openSourceApp(packageName: String): Boolean {
         return ServiceControlHelper.openTargetApp(getApplication(), packageName)
+    }
+
+    // 7. System & Service State
+    val isBackgroundEnabled = MutableStateFlow(preferenceManager.isBackgroundEnabled)
+    val isSilentNotifEnabled = MutableStateFlow(preferenceManager.isForegroundSilentNotifEnabled)
+    val isSyncingInstalledApps = MutableStateFlow(false)
+    val isBackupInProgress = MutableStateFlow(false)
+
+    fun toggleBackgroundMaster(enabled: Boolean) {
+        ServiceControlHelper.setBackgroundServiceEnabled(getApplication(), enabled)
+        isBackgroundEnabled.value = enabled
+    }
+
+    fun toggleSilentForegroundNotif(enabled: Boolean) {
+        preferenceManager.isForegroundSilentNotifEnabled = enabled
+        isSilentNotifEnabled.value = enabled
+        ServiceControlHelper.ensureServiceActive(getApplication())
+    }
+
+    // 8. Per-App Filter & Save-Image Controls
+    fun syncInstalledApps() {
+        viewModelScope.launch(Dispatchers.IO) {
+            isSyncingInstalledApps.value = true
+            try {
+                ServiceControlHelper.syncInstalledAppsToMetadata(getApplication())
+            } finally {
+                isSyncingInstalledApps.value = false
+            }
+        }
+    }
+
+    fun setAppTrackingEnabled(packageName: String, enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.setAppTracking(packageName, enabled)
+        }
+    }
+
+    fun setAppSaveImageEnabled(packageName: String, enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.setAppSaveImage(packageName, enabled)
+        }
+    }
+
+    // 9. Backup & Restore Wrappers
+    fun exportFullBackup(uri: Uri, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            isBackupInProgress.value = true
+            val success = BackupRestoreHelper.exportFullBackupToUri(getApplication(), uri)
+            refreshAnalyticsAndStorage()
+            isBackupInProgress.value = false
+            withContext(Dispatchers.Main) {
+                onComplete(success)
+            }
+        }
+    }
+
+    fun importFullBackup(uri: Uri, onComplete: (BackupRestoreHelper.RestoreResult) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            isBackupInProgress.value = true
+            val result = BackupRestoreHelper.importAndMergeBackupFromUri(getApplication(), uri)
+            refreshAnalyticsAndStorage()
+            isBackupInProgress.value = false
+            withContext(Dispatchers.Main) {
+                onComplete(result)
+            }
+        }
+    }
+
+    fun exportCsv(uri: Uri, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            isBackupInProgress.value = true
+            val success = BackupRestoreHelper.exportCsvToUri(getApplication(), uri)
+            isBackupInProgress.value = false
+            withContext(Dispatchers.Main) {
+                onComplete(success)
+            }
+        }
     }
 }

@@ -100,7 +100,21 @@ data class Strings(
     val days7: String = "7 ngày",
     val days30: String = "30 ngày",
     val days90: String = "90 ngày",
-    val optimizeDbButton: String = "Tối ưu bộ nhớ (VACUUM)"
+    val optimizeDbButton: String = "Tối ưu bộ nhớ (VACUUM)",
+    val scanInstalledApps: String = "Quét ứng dụng",
+    val scanAppsSubtitle: String = "Đồng bộ danh sách ứng dụng đã cài đặt trên máy",
+    val filterLoggingOn: String = "Đang lưu TB",
+    val filterSaveImageOn: String = "Đang lưu ảnh",
+    val silentKeepAliveToggle: String = "Thông báo tĩnh chống tắt ngầm",
+    val silentKeepAliveDesc: String = "Duy trì dịch vụ không bị hệ thống tự tắt",
+    val btnGrant: String = "Cấp quyền",
+    val btnUnrestricted: String = "Tắt tối ưu pin",
+    val btnRebind: String = "Kích hoạt lại",
+    val statusActive: String = "Đang hoạt động",
+    val statusInactive: String = "Đang tắt",
+    val restoreDialogTitle: String = "Kết quả khôi phục",
+    val restoreSummary: String = "Tổng số bản ghi: %d\n• Mới thêm vào: %d\n• Bỏ qua trùng lặp: %d",
+    val backupProcessing: String = "Đang xử lý dữ liệu..."
 )
 
 val VietnameseStrings = Strings(
@@ -264,7 +278,21 @@ val EnglishStrings = Strings(
     days7 = "7 Days",
     days30 = "30 Days",
     days90 = "90 Days",
-    optimizeDbButton = "Optimize DB (VACUUM)"
+    optimizeDbButton = "Optimize DB (VACUUM)",
+    scanInstalledApps = "Scan Installed Apps",
+    scanAppsSubtitle = "Synchronize installed apps list from device",
+    filterLoggingOn = "Logging ON",
+    filterSaveImageOn = "Save Img ON",
+    silentKeepAliveToggle = "Persistent Silent Notification",
+    silentKeepAliveDesc = "Prevents OEM killers from stopping background service",
+    btnGrant = "Grant",
+    btnUnrestricted = "Unrestricted",
+    btnRebind = "Rebind",
+    statusActive = "Active",
+    statusInactive = "Inactive",
+    restoreDialogTitle = "Restore Result",
+    restoreSummary = "Total records: %d\n• Newly added: %d\n• Skipped duplicates: %d",
+    backupProcessing = "Processing data..."
 )
 
 val LocalAppStrings = staticCompositionLocalOf { VietnameseStrings }
