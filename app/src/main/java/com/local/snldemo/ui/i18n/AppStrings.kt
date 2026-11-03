@@ -84,7 +84,11 @@ data class Strings(
     val backupImportSuccess: String,
     val csvExportSuccess: String,
     val vacuumDbButton: String,
-    val vacuumDbDesc: String
+    val vacuumDbDesc: String,
+    val backToConversations: String = "← Quay lại hội thoại",
+    val noConversations: String = "Không tìm thấy hội thoại nào",
+    val selectDateRange: String = "Chọn khoảng thời gian",
+    val messagesCount: String = "%d thông báo"
 )
 
 val VietnameseStrings = Strings(
@@ -232,7 +236,11 @@ val EnglishStrings = Strings(
     backupImportSuccess = "Data restored and merged successfully",
     csvExportSuccess = "CSV file exported successfully",
     vacuumDbButton = "Vacuum Database",
-    vacuumDbDesc = "Reclaim freed disk space from deleted records and images"
+    vacuumDbDesc = "Reclaim freed disk space from deleted records and images",
+    backToConversations = "← Back to conversations",
+    noConversations = "No conversations found",
+    selectDateRange = "Select Date Range",
+    messagesCount = "%d notifications"
 )
 
 val LocalAppStrings = staticCompositionLocalOf { VietnameseStrings }

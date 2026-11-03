@@ -62,7 +62,13 @@ interface NotificationDao {
     fun observeNotificationsForApp(pkg: String): Flow<List<NotificationEntity>>
 
     @Query("SELECT * FROM notifications ORDER BY timestamp DESC")
+    fun observeAllNotifications(): Flow<List<NotificationEntity>>
+
+    @Query("SELECT * FROM notifications ORDER BY timestamp DESC")
     suspend fun getAllNotificationsSync(): List<NotificationEntity>
+
+    @Query("DELETE FROM notifications WHERE id = :id")
+    suspend fun deleteNotificationById(id: Long)
 
     @Query("UPDATE notifications SET isStarred = :starred WHERE id = :id")
     suspend fun setStarred(id: Long, starred: Boolean)
