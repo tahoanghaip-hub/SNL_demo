@@ -88,7 +88,19 @@ data class Strings(
     val backToConversations: String = "← Quay lại hội thoại",
     val noConversations: String = "Không tìm thấy hội thoại nào",
     val selectDateRange: String = "Chọn khoảng thời gian",
-    val messagesCount: String = "%d thông báo"
+    val messagesCount: String = "%d thông báo",
+    val chartByCount: String = "Theo số lượng",
+    val chartBySize: String = "Theo dung lượng",
+    val chartLast7Days: String = "7 ngày gần nhất",
+    val chartTopApps: String = "So sánh dung lượng",
+    val othersSlice: String = "Khác",
+    val textDbSize: String = "Văn bản",
+    val mediaSize: String = "Media",
+    val confirmCleanupTitle: String = "Dọn dẹp bộ nhớ",
+    val days7: String = "7 ngày",
+    val days30: String = "30 ngày",
+    val days90: String = "90 ngày",
+    val optimizeDbButton: String = "Tối ưu bộ nhớ (VACUUM)"
 )
 
 val VietnameseStrings = Strings(
@@ -240,7 +252,19 @@ val EnglishStrings = Strings(
     backToConversations = "← Back to conversations",
     noConversations = "No conversations found",
     selectDateRange = "Select Date Range",
-    messagesCount = "%d notifications"
+    messagesCount = "%d notifications",
+    chartByCount = "By Count",
+    chartBySize = "By Storage Size",
+    chartLast7Days = "Last 7 Days",
+    chartTopApps = "Top App Storage",
+    othersSlice = "Others",
+    textDbSize = "Text DB",
+    mediaSize = "Media",
+    confirmCleanupTitle = "Storage Cleanup",
+    days7 = "7 Days",
+    days30 = "30 Days",
+    days90 = "90 Days",
+    optimizeDbButton = "Optimize DB (VACUUM)"
 )
 
 val LocalAppStrings = staticCompositionLocalOf { VietnameseStrings }

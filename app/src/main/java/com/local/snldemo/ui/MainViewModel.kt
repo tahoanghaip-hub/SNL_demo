@@ -16,10 +16,15 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 data class NotificationFilterState(
     val query: String = "",
@@ -33,10 +38,35 @@ data class NotificationFilterState(
         get() = query.isNotBlank() || appFilter != null || startMillis != null || endMillis != null || onlyStarred || onlyRemoved
 }
 
+data class DeviceStorageUiState(
+    val totalDeviceBytes: Long = 0L,
+    val usedDeviceBytes: Long = 0L,
+    val freeDeviceBytes: Long = 0L,
+    val totalAppOccupiedBytes: Long = 0L
+)
+
+data class AppStorageDetail(
+    val packageName: String,
+    val appName: String,
+    val iconPath: String?,
+    val notificationCount: Int,
+    val removedCount: Int,
+    val textBytes: Long,
+    val mediaBytes: Long,
+    val totalBytes: Long
+)
+
+data class DailyTrafficPoint(
+    val dateLabel: String,
+    val count: Int,
+    val dayStartMillis: Long
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val preferenceManager = PreferenceManager.getInstance(application)
-    private val dao = AppDatabase.getInstance(application).notificationDao()
+    private val database = AppDatabase.getInstance(application)
+    private val dao = database.notificationDao()
 
     // 1. Language & Preferences State
     private val _languageCode = MutableStateFlow(preferenceManager.languageCode)
@@ -156,6 +186,139 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // 4. On-Demand Storage & Analytics State
+    val deviceStorageState = MutableStateFlow(DeviceStorageUiState())
+    val appStorageDetails = MutableStateFlow<List<AppStorageDetail>>(emptyList())
+    val last7DaysTraffic = MutableStateFlow<List<DailyTrafficPoint>>(emptyList())
+    val isCalculatingStorage = MutableStateFlow(false)
+
+    fun refreshAnalyticsAndStorage() {
+        viewModelScope.launch(Dispatchers.IO) {
+            isCalculatingStorage.value = true
+            try {
+                val context = getApplication<Application>()
+                val (totalDev, usedDev, freeDev) = StorageHelper.getDeviceStorageInfo()
+                val totalAppBytes = StorageHelper.getDatabaseTotalBytes(context)
+                deviceStorageState.value = DeviceStorageUiState(
+                    totalDeviceBytes = totalDev,
+                    usedDeviceBytes = usedDev,
+                    freeDeviceBytes = freeDev,
+                    totalAppOccupiedBytes = totalAppBytes
+                )
+
+                // Fetch app summaries and metadata map
+                val currentSummaries = appSummaries.value.ifEmpty {
+                    dao.observeAppSummaries().firstOrNull() ?: emptyList()
+                }
+                val metaMap = appMetadataMap.value.ifEmpty {
+                    dao.getAllAppMetadataSync().associateBy { it.packageName }
+                }
+
+                val details = currentSummaries.map { summary ->
+                    val mediaBytes = StorageHelper.getAppMediaBytes(context, summary.packageName)
+                    val totalBytes = summary.textBytes + mediaBytes
+                    val meta = metaMap[summary.packageName]
+                    AppStorageDetail(
+                        packageName = summary.packageName,
+                        appName = summary.appName,
+                        iconPath = meta?.appIconPath,
+                        notificationCount = summary.totalCount,
+                        removedCount = summary.removedCount,
+                        textBytes = summary.textBytes,
+                        mediaBytes = mediaBytes,
+                        totalBytes = totalBytes
+                    )
+                }.sortedByDescending { it.totalBytes }
+
+                appStorageDetails.value = details
+
+                // Compute last 7 days traffic
+                val calendar = Calendar.getInstance().apply {
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val notifs = allNotifications.value
+                val traffic = mutableListOf<DailyTrafficPoint>()
+                val sdf = SimpleDateFormat("dd/MM", Locale.getDefault())
+                for (i in 6 downTo 0) {
+                    val dayCal = (calendar.clone() as Calendar).apply {
+                        add(Calendar.DAY_OF_YEAR, -i)
+                    }
+                    val startMillis = dayCal.timeInMillis
+                    val endMillis = startMillis + (24L * 60L * 60L * 1000L) - 1L
+                    val count = notifs.count { it.timestamp in startMillis..endMillis }
+                    traffic.add(
+                        DailyTrafficPoint(
+                            dateLabel = sdf.format(Date(startMillis)),
+                            count = count,
+                            dayStartMillis = startMillis
+                        )
+                    )
+                }
+                last7DaysTraffic.value = traffic
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isCalculatingStorage.value = false
+            }
+        }
+    }
+
+    // 5. Flexible Per-App Cleanup & VACUUM Operations
+    fun cleanAllForApp(packageName: String, onComplete: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val imagePaths = dao.getImagePathsForApp(packageName)
+            StorageHelper.deleteFiles(imagePaths)
+            StorageHelper.deleteAppImageFolder(context, packageName)
+            dao.deleteAllForApp(packageName)
+            database.performVacuum()
+            refreshAnalyticsAndStorage()
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
+        }
+    }
+
+    fun cleanOlderThanDaysForApp(packageName: String, days: Int, onComplete: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cutoffTime = System.currentTimeMillis() - (days * 24L * 60L * 60L * 1000L)
+            val imagePaths = dao.getImagePathsOlderThan(packageName, cutoffTime)
+            StorageHelper.deleteFiles(imagePaths)
+            dao.deleteOlderThan(packageName, cutoffTime)
+            database.performVacuum()
+            refreshAnalyticsAndStorage()
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
+        }
+    }
+
+    fun cleanUnstarredForApp(packageName: String, onComplete: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val imagePaths = dao.getUnstarredImagePaths(packageName)
+            StorageHelper.deleteFiles(imagePaths)
+            dao.deleteUnstarredForApp(packageName)
+            database.performVacuum()
+            refreshAnalyticsAndStorage()
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
+        }
+    }
+
+    fun triggerManualVacuum(onComplete: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.performVacuum()
+            refreshAnalyticsAndStorage()
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
+        }
+    }
+
     init {
         // Automatically sync installed app names and icons into app_metadata on startup
         viewModelScope.launch {
@@ -163,7 +326,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // 4. Quick Action Methods
+    // 6. Quick Action Methods
     fun toggleStar(notification: NotificationEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.setStarred(notification.id, !notification.isStarred)

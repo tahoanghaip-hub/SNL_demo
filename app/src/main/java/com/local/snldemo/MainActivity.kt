@@ -58,6 +58,7 @@ import com.local.snldemo.ui.MainViewModel
 import com.local.snldemo.ui.i18n.AppLanguage
 import com.local.snldemo.ui.i18n.LocalAppStrings
 import com.local.snldemo.ui.i18n.getStrings
+import com.local.snldemo.ui.screens.AnalyticsStorageScreen
 import com.local.snldemo.ui.screens.AppDetailScreen
 import com.local.snldemo.ui.screens.HistoryHomeScreen
 import com.local.snldemo.ui.theme.SNLDemoTheme
@@ -222,63 +223,13 @@ fun MainAppShell(viewModel: MainViewModel) {
                     }
                 }
                 AppTab.ANALYTICS -> {
-                    AnalyticsPlaceholderScreen()
+                    AnalyticsStorageScreen(viewModel = viewModel)
                 }
                 AppTab.SETTINGS -> {
                     SettingsPlaceholderScreen(viewModel = viewModel)
                 }
             }
         }
-    }
-}
-
-/**
- * Placeholder for Phase 4: Canvas Charts, PieChart, BarChart, and Storage Vacuum Cleaner.
- */
-@Composable
-fun AnalyticsPlaceholderScreen() {
-    val strings = LocalAppStrings.current
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(72.dp)
-                .background(Color(0xFF1E293B), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.PieChart,
-                contentDescription = null,
-                tint = Color(0xFF38BDF8),
-                modifier = Modifier.size(36.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = strings.tabAnalytics,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Phase 4: Custom Canvas Pie Charts, Notification Heatmaps, and In-depth Storage Analytics",
-            fontSize = 13.sp,
-            color = Color(0xFF8E8E9F),
-            lineHeight = 18.sp,
-            modifier = Modifier.padding(horizontal = 24.dp),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
     }
 }
 
