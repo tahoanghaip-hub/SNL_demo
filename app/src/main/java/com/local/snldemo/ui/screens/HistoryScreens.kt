@@ -410,15 +410,6 @@ fun HistoryHomeScreen(
                             item = item,
                             showAppBadge = true,
                             onToggleStar = { viewModel.toggleStar(item) },
-                            onSaveImage = { path ->
-                                viewModel.saveImageToGallery(path) { success ->
-                                    Toast.makeText(
-                                        context,
-                                        if (success) strings.actionSavedImageToast else "Error",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            },
                             onOpenApp = { viewModel.openSourceApp(item.packageName) },
                             onDelete = { viewModel.deleteSingleNotification(item) }
                         )
@@ -556,7 +547,6 @@ fun AppDetailScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
     val strings = LocalAppStrings.current
 
     val appMetadataMap by viewModel.appMetadataMap.collectAsState()
@@ -709,18 +699,37 @@ fun AppDetailScreen(
             )
         }
 
-        // Local Filter Bar
-        Row(
+        // Local Filter Bar: Row 1 = Full-Width Search Bar, Row 2 = Filter Chips
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             OutlinedTextField(
                 value = localSearchQuery,
                 onValueChange = { localSearchQuery = it },
                 placeholder = { Text(text = strings.searchHint, color = Color(0xFF757588), fontSize = 12.sp) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = Color(0xFF757588),
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (localSearchQuery.isNotEmpty()) {
+                        IconButton(onClick = { localSearchQuery = "" }) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = null,
+                                tint = Color(0xFF757588),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -731,32 +740,64 @@ fun AppDetailScreen(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White
                 ),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             )
 
-            FilterChip(
-                selected = localOnlyStarred,
-                onClick = { localOnlyStarred = !localOnlyStarred },
-                label = { Text("★", fontSize = 14.sp) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = Color(0xFF332900),
-                    selectedLabelColor = Color(0xFFFFD700),
-                    containerColor = Color(0xFF16161E),
-                    labelColor = Color(0xFFA4B0BE)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = localOnlyStarred,
+                    onClick = { localOnlyStarred = !localOnlyStarred },
+                    label = { Text("★ ${strings.actionStar}", fontSize = 11.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFF332900),
+                        selectedLabelColor = Color(0xFFFFD700),
+                        containerColor = Color(0xFF16161E),
+                        labelColor = Color(0xFFA4B0BE)
+                    )
                 )
-            )
 
-            FilterChip(
-                selected = localOnlyRemoved,
-                onClick = { localOnlyRemoved = !localOnlyRemoved },
-                label = { Text("Thu hồi", fontSize = 11.sp) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = Color(0xFF381519),
-                    selectedLabelColor = Color(0xFFFF6B6B),
-                    containerColor = Color(0xFF16161E),
-                    labelColor = Color(0xFFA4B0BE)
+                FilterChip(
+                    selected = localOnlyRemoved,
+                    onClick = { localOnlyRemoved = !localOnlyRemoved },
+                    label = { Text(strings.badgeRemoved, fontSize = 11.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFF381519),
+                        selectedLabelColor = Color(0xFFFF6B6B),
+                        containerColor = Color(0xFF16161E),
+                        labelColor = Color(0xFFA4B0BE)
+                    )
                 )
-            )
+
+                if (localSearchQuery.isNotEmpty() || localOnlyStarred || localOnlyRemoved) {
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            localSearchQuery = ""
+                            localOnlyStarred = false
+                            localOnlyRemoved = false
+                        },
+                        label = { Text(strings.btnCancel, fontSize = 11.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = Color(0xFFFF5252)
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = Color(0xFF242434),
+                            labelColor = Color(0xFFFF5252)
+                        )
+                    )
+                }
+            }
         }
 
         // Tab Content
@@ -780,15 +821,6 @@ fun AppDetailScreen(
                             item = item,
                             showAppBadge = false,
                             onToggleStar = { viewModel.toggleStar(item) },
-                            onSaveImage = { path ->
-                                viewModel.saveImageToGallery(path) { success ->
-                                    Toast.makeText(
-                                        context,
-                                        if (success) strings.actionSavedImageToast else "Error",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            },
                             onOpenApp = { viewModel.openSourceApp(item.packageName) },
                             onDelete = { viewModel.deleteSingleNotification(item) }
                         )
@@ -876,15 +908,6 @@ fun AppDetailScreen(
                                 item = item,
                                 showAppBadge = false,
                                 onToggleStar = { viewModel.toggleStar(item) },
-                                onSaveImage = { path ->
-                                    viewModel.saveImageToGallery(path) { success ->
-                                        Toast.makeText(
-                                            context,
-                                            if (success) strings.actionSavedImageToast else "Error",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                },
                                 onOpenApp = { viewModel.openSourceApp(item.packageName) },
                                 onDelete = { viewModel.deleteSingleNotification(item) }
                             )

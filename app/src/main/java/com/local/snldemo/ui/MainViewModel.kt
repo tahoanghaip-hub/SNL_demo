@@ -70,6 +70,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getInstance(application)
     private val dao = database.notificationDao()
 
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!preferenceManager.hasCleanedFalseRecallsV2) {
+                dao.clearAllRemovedFlags()
+                preferenceManager.hasCleanedFalseRecallsV2 = true
+            }
+        }
+    }
+
+    fun clearFalseRecallsManually(onComplete: (() -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.clearAllRemovedFlags()
+            withContext(Dispatchers.Main) {
+                onComplete?.invoke()
+            }
+        }
+    }
+
     // 1. Language & Preferences State
     private val _languageCode = MutableStateFlow(preferenceManager.languageCode)
     val languageCode: StateFlow<String> = _languageCode.asStateFlow()

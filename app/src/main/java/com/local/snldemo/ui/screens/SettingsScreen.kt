@@ -176,7 +176,6 @@ fun SettingsScreen(viewModel: MainViewModel) {
             .filter { meta ->
                 when (selectedFilterMode) {
                     1 -> meta.isTrackingEnabled
-                    2 -> meta.isSaveImageEnabled
                     else -> true
                 }
             }
@@ -228,17 +227,27 @@ fun SettingsScreen(viewModel: MainViewModel) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Section 1: System Health Check Dashboard (3 Status Indicators)
+            // Section 1: System Health Check Dashboard (3 Status Indicators + Recall Flag Reset)
             item {
                 SystemHealthCard(
                     isNotifGranted = isNotifAccessGranted,
                     isBatteryIgnored = isBatteryOptIgnored,
                     isComponentEnabled = isComponentEnabled && isBackgroundEnabled && isNotifAccessGranted,
+                    languageCode = languageCode,
                     onGrantNotif = { ServiceControlHelper.openNotificationListenerSettings(context) },
                     onUnrestrictBattery = { ServiceControlHelper.requestIgnoreBatteryOptimizations(context) },
                     onRebindService = {
                         ServiceControlHelper.ensureServiceActive(context)
                         recheckHealth()
+                    },
+                    onResetFalseRecalls = {
+                        viewModel.clearFalseRecallsManually {
+                            Toast.makeText(
+                                context,
+                                if (languageCode == "vi") "Đã khôi phục toàn bộ cờ thu hồi!" else "All false recall flags have been cleared!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }
                 )
             }
@@ -290,8 +299,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
             items(filteredApps, key = { it.packageName }) { meta ->
                 AppFilterRowCard(
                     meta = meta,
-                    onToggleTracking = { viewModel.setAppTrackingEnabled(meta.packageName, it) },
-                    onToggleSaveImage = { viewModel.setAppSaveImageEnabled(meta.packageName, it) }
+                    onToggleTracking = { viewModel.setAppTrackingEnabled(meta.packageName, it) }
                 )
             }
 
@@ -353,9 +361,11 @@ fun SystemHealthCard(
     isNotifGranted: Boolean,
     isBatteryIgnored: Boolean,
     isComponentEnabled: Boolean,
+    languageCode: String,
     onGrantNotif: () -> Unit,
     onUnrestrictBattery: () -> Unit,
-    onRebindService: () -> Unit
+    onRebindService: () -> Unit,
+    onResetFalseRecalls: () -> Unit
 ) {
     val strings = LocalAppStrings.current
 
@@ -418,6 +428,41 @@ fun SystemHealthCard(
                 buttonText = if (!isComponentEnabled) strings.btnRebind else null,
                 onButtonClick = onRebindService
             )
+
+            HorizontalDivider(color = Color(0xFF20202E))
+
+            // Quick Maintenance: Reset False Recall Flags
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (languageCode == "vi") "Khắc phục cờ thu hồi sai" else "Fix False Recalled Flags",
+                        fontSize = 13.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = if (languageCode == "vi") "Đặt lại cờ thu hồi bị lỗi bởi phiên bản cũ" else "Reset recall flags caused by older version bug",
+                        fontSize = 11.sp,
+                        color = Color(0xFF8E8E9F)
+                    )
+                }
+                Button(
+                    onClick = onResetFalseRecalls,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF28283C)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = if (languageCode == "vi") "Khôi phục" else "Reset",
+                        fontSize = 11.sp,
+                        color = Color(0xFF4E95FF)
+                    )
+                }
+            }
         }
     }
 }
@@ -817,18 +862,6 @@ fun AppFilterHeaderCard(
                     labelColor = Color(0xFFA4B0BE)
                 )
             )
-
-            FilterChip(
-                selected = selectedFilterMode == 2,
-                onClick = { onFilterChange(2) },
-                label = { Text(strings.filterSaveImageOn, fontSize = 11.sp) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = Color(0xFF1E3A8A),
-                    selectedLabelColor = Color(0xFF90CAF9),
-                    containerColor = Color(0xFF16161E),
-                    labelColor = Color(0xFFA4B0BE)
-                )
-            )
         }
     }
 }
@@ -839,8 +872,7 @@ fun AppFilterHeaderCard(
 @Composable
 fun AppFilterRowCard(
     meta: AppMetadataEntity,
-    onToggleTracking: (Boolean) -> Unit,
-    onToggleSaveImage: (Boolean) -> Unit
+    onToggleTracking: (Boolean) -> Unit
 ) {
     val strings = LocalAppStrings.current
 
@@ -884,51 +916,24 @@ fun AppFilterRowCard(
                 )
             }
 
-            // 2 Clearly Labeled Switches
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Switch 1: Log Notif
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = strings.allowLogToggle,
-                        fontSize = 10.sp,
-                        color = if (meta.isTrackingEnabled) Color(0xFF4E95FF) else Color(0xFF8E8E9F)
-                    )
-                    Switch(
-                        checked = meta.isTrackingEnabled,
-                        onCheckedChange = onToggleTracking,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF4E95FF),
-                            uncheckedThumbColor = Color(0xFFA4B0BE),
-                            uncheckedTrackColor = Color(0xFF242434)
-                        ),
-                        modifier = Modifier.height(28.dp)
-                    )
-                }
-
-                // Switch 2: Save Image
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = strings.allowSaveImageToggle,
-                        fontSize = 10.sp,
-                        color = if (meta.isSaveImageEnabled && meta.isTrackingEnabled) Color(0xFF00D2D3) else Color(0xFF8E8E9F)
-                    )
-                    Switch(
-                        checked = meta.isSaveImageEnabled,
-                        onCheckedChange = onToggleSaveImage,
-                        enabled = meta.isTrackingEnabled,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF00D2D3),
-                            uncheckedThumbColor = Color(0xFFA4B0BE),
-                            uncheckedTrackColor = Color(0xFF242434)
-                        ),
-                        modifier = Modifier.height(28.dp)
-                    )
-                }
+            // Clean Single Switch: Log Notif
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = strings.allowLogToggle,
+                    fontSize = 10.sp,
+                    color = if (meta.isTrackingEnabled) Color(0xFF4E95FF) else Color(0xFF8E8E9F)
+                )
+                Switch(
+                    checked = meta.isTrackingEnabled,
+                    onCheckedChange = onToggleTracking,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF4E95FF),
+                        uncheckedThumbColor = Color(0xFFA4B0BE),
+                        uncheckedTrackColor = Color(0xFF242434)
+                    ),
+                    modifier = Modifier.height(28.dp)
+                )
             }
         }
     }

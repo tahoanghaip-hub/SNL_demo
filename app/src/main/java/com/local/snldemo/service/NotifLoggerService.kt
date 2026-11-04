@@ -28,10 +28,19 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 class NotifLoggerService : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // In-memory tracker for active unread notification line stacks per "$pkg|$senderName"
+    private val activeUnreadStacks = ConcurrentHashMap<String, List<String>>()
+
+    private val summaryRegex = Regex(
+        """^(Bạn có \d+ tin nhắn mới|\d+ tin nhắn mới|\d+ new messages)""",
+        RegexOption.IGNORE_CASE
+    )
 
     override fun onCreate() {
         super.onCreate()
@@ -94,7 +103,7 @@ class NotifLoggerService : NotificationListenerService() {
             return
         }
 
-        // Deep Content & Media Extraction on Dispatchers.IO (Zero UI/Main thread overhead)
+        // Deep Content & Delta Extraction on Dispatchers.IO (Zero UI/Main thread overhead)
         serviceScope.launch {
             try {
                 processNotificationPosted(sbn, notif, pkg)
@@ -104,32 +113,20 @@ class NotifLoggerService : NotificationListenerService() {
         }
     }
 
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        super.onNotificationRemoved(sbn)
-    }
-
     override fun onNotificationRemoved(
         sbn: StatusBarNotification?,
         rankingMap: RankingMap?,
         reason: Int
     ) {
         if (sbn == null) return
-        val prefs = PreferenceManager.getInstance(this)
-        if (!prefs.isBackgroundEnabled) return
+        val pkg = sbn.packageName
 
-        // Only mark as removed if the notification was cancelled by the source app itself
-        // (REASON_CLICK, REASON_CANCEL, REASON_CANCEL_ALL are user swipe/tap actions and NOT recalls)
-        val isAppRecalled = (reason == REASON_APP_CANCEL ||
-                reason == REASON_APP_CANCEL_ALL ||
-                reason == REASON_GROUP_SUMMARY_CANCELED)
-
-        if (isAppRecalled) {
-            val sbnKey = sbn.key
-            val removedAt = System.currentTimeMillis()
-            serviceScope.launch {
-                val dao = AppDatabase.getInstance(this@NotifLoggerService).notificationDao()
-                dao.markAsRemovedByKey(sbnKey, removedAt)
-            }
+        // CRITICAL BUGFIX: NEVER mark notifications as removed in Room here!
+        // When user opens Zalo/Messenger to read messages, Android calls cancel() -> REASON_APP_CANCEL.
+        // Instead, simply reset the in-memory unread stack for this package so future unread sessions start fresh.
+        val prefix = "$pkg|"
+        activeUnreadStacks.keys.filter { it.startsWith(prefix) }.forEach {
+            activeUnreadStacks.remove(it)
         }
     }
 
@@ -174,7 +171,7 @@ class NotifLoggerService : NotificationListenerService() {
         }
 
         if (!meta.isTrackingEnabled) {
-            return // App is blacklisted/disabled by user
+            return // App is disabled by user
         }
 
         // 2. Extract Titles & Sender Name
@@ -193,14 +190,87 @@ class NotifLoggerService : NotificationListenerService() {
             rawTitle.ifEmpty { meta.appName }
         }
 
-        // 3. Extract Richest Content Representation
-        var content = extractRichestContent(extras)
-        if (rawTitle.isBlank() && content.isBlank()) {
+        // 3. Extract Raw Lines & Clean Redundant Sender Prefixes
+        val rawLines = extractRawLines(extras)
+        val cleanedLines = rawLines
+            .map { cleanLinePrefix(it, senderName, rawTitle) }
+            .filter { it.isNotBlank() }
+
+        // Filter out generic summary headers like "Bạn có \d+ tin nhắn mới" if actual message lines are present
+        val nonSummaryLines = cleanedLines.filterNot { summaryRegex.containsMatchIn(it) }
+        val linesToProcess = if (nonSummaryLines.isNotEmpty()) nonSummaryLines else cleanedLines
+
+        if (linesToProcess.isEmpty() && rawTitle.isBlank()) {
             return
         }
 
+        val rawCombinedContent = if (linesToProcess.isNotEmpty()) {
+            linesToProcess.joinToString("\n")
+        } else {
+            rawTitle
+        }
+
         // 4. Video Message Detection
-        val isVideo = checkIsVideoMessage(rawTitle, content)
+        val isVideo = checkIsVideoMessage(rawTitle, rawCombinedContent)
+
+        // 5. Recall Detection (True Recall Only: explicit recall notice from app)
+        val isRecall = checkIsRecallNotice(rawCombinedContent) || linesToProcess.any { checkIsRecallNotice(it) }
+        if (isRecall) {
+            val updatedRows = dao.markLatestSenderMessageAsRemoved(pkg, senderName, sbn.postTime)
+            activeUnreadStacks.remove("$pkg|$senderName")
+            if (updatedRows > 0) {
+                // Successfully marked the previous message as recalled!
+                // Do NOT insert the redundant recall text as a new card.
+                return
+            }
+            // If updatedRows == 0, no prior message existed in DB, insert as a recalled notification
+        }
+
+        // 6. Delta Extraction for Stacked Unread Messages
+        val stackKey = "$pkg|$senderName"
+        val recentDbItems = dao.getRecentNotificationsForSender(pkg, senderName, 10)
+        val recentDbContents = recentDbItems.map { it.content.trim() }
+        val previousStack = activeUnreadStacks[stackKey] ?: emptyList()
+        activeUnreadStacks[stackKey] = linesToProcess
+
+        val newLinesToLog: List<String>
+        if (linesToProcess.size <= 1) {
+            val singleLine = linesToProcess.firstOrNull() ?: rawCombinedContent
+            val latestDb = recentDbItems.firstOrNull()
+            if (latestDb != null &&
+                latestDb.content.trim() == singleLine.trim() &&
+                kotlin.math.abs(sbn.postTime - latestDb.timestamp) < 3000L
+            ) {
+                return // Debounce duplicate
+            }
+            newLinesToLog = listOf(singleLine)
+        } else {
+            // Multi-line stacked unread messages
+            if (previousStack.isNotEmpty() &&
+                linesToProcess.size > previousStack.size &&
+                linesToProcess.take(previousStack.size) == previousStack
+            ) {
+                // Case A: newly appended lines since previous notification
+                newLinesToLog = linesToProcess.drop(previousStack.size)
+            } else {
+                // Case B: drop leading lines that already exist in previousStack or recent DB
+                newLinesToLog = linesToProcess.dropWhile { line ->
+                    line in previousStack || line in recentDbContents
+                }
+            }
+            if (newLinesToLog.isEmpty()) {
+                return // All lines were already logged in previous notifications
+            }
+        }
+
+        var content = newLinesToLog.joinToString("\n").trim()
+        if (content.isBlank() && rawTitle.isBlank()) {
+            return
+        }
+        if (content.isBlank()) {
+            content = rawTitle
+        }
+
         if (isVideo) {
             val lang = PreferenceManager.getInstance(this).currentLanguage
             val videoNotice = if (lang == AppLanguage.VI) {
@@ -214,24 +284,6 @@ class NotifLoggerService : NotificationListenerService() {
             ) {
                 content = videoNotice
             }
-        }
-
-        // 5. Anti-Duplicate Debounce Check
-        val latest = dao.getLatestNotificationForApp(pkg)
-        if (latest != null) {
-            val isDuplicate = latest.title == rawTitle &&
-                    latest.content == content &&
-                    latest.senderName == senderName &&
-                    kotlin.math.abs(sbn.postTime - latest.timestamp) < 2500L
-            if (isDuplicate) {
-                return
-            }
-        }
-
-        // 6. In-Place Unsent Detection (Zalo/Messenger style in-place recall notice)
-        val isRecallNotice = checkIsRecallNotice(content)
-        if (isRecallNotice) {
-            dao.markAsRemovedByKey(sbn.key, System.currentTimeMillis())
         }
 
         // 7. Extract Sender Avatar (64x64 WebP)
@@ -260,19 +312,10 @@ class NotifLoggerService : NotificationListenerService() {
             }
         }
 
-        // 8. Extract Image Attachment (if enabled for this app)
-        var imagePath: String? = null
-        if (meta.isSaveImageEnabled) {
-            @Suppress("DEPRECATION")
-            val pictureBitmap = extras.getParcelable<Bitmap>(Notification.EXTRA_PICTURE)
-                ?: extras.getParcelable<Bitmap>(Notification.EXTRA_LARGE_ICON_BIG)
+        // 8. Image Attachment: Always null (removed non-functional feature per Phase 6)
+        val imagePath: String? = null
 
-            if (pictureBitmap != null) {
-                imagePath = StorageHelper.saveNotificationImageWebP(this, pkg, pictureBitmap)
-            }
-        }
-
-        // 9. Compute Deterministic SHA-256 Hash & Insert to Room
+        // 9. Deterministic Unique Hash & Room Insertion
         val uniqueHash = StorageHelper.computeUniqueHash(pkg, senderName, content, sbn.postTime)
         val entity = NotificationEntity(
             uniqueHash = uniqueHash,
@@ -283,8 +326,8 @@ class NotifLoggerService : NotificationListenerService() {
             title = rawTitle.ifEmpty { senderName },
             content = content,
             timestamp = sbn.postTime,
-            isRemoved = false,
-            removedAt = null,
+            isRemoved = isRecall,
+            removedAt = if (isRecall) sbn.postTime else null,
             isStarred = false,
             isVideoMessage = isVideo,
             senderAvatarPath = avatarPath,
@@ -293,59 +336,69 @@ class NotifLoggerService : NotificationListenerService() {
         dao.insertNotification(entity)
     }
 
-    private fun extractRichestContent(extras: Bundle): String {
-        val candidates = mutableListOf<String>()
-
-        // 1. MessagingStyle messages
-        val msgText = extractMessagingStyleText(extras)
-        if (msgText.isNotBlank()) {
-            candidates.add(msgText)
+    private fun cleanLinePrefix(line: String, senderName: String, rawTitle: String): String {
+        var trimmed = line.trim()
+        val prefixes = mutableListOf<String>()
+        if (senderName.isNotBlank()) prefixes.add(senderName)
+        if (rawTitle.isNotBlank() && rawTitle != senderName) prefixes.add(rawTitle)
+        if (senderName.contains(" • ")) {
+            val partAfter = senderName.substringAfter(" • ").trim()
+            if (partAfter.isNotBlank()) prefixes.add(partAfter)
+            val partBefore = senderName.substringBefore(" • ").trim()
+            if (partBefore.isNotBlank()) prefixes.add(partBefore)
         }
 
-        // 2. BigText
-        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim()
-        if (!bigText.isNullOrBlank()) {
-            candidates.add(bigText)
-        }
-
-        // 3. TextLines (InboxStyle)
-        val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
-            ?.mapNotNull { it?.toString()?.trim() }
-            ?.filter { it.isNotBlank() }
-            ?.joinToString("\n")
-        if (!textLines.isNullOrBlank()) {
-            candidates.add(textLines)
-        }
-
-        // 4. Regular Text
-        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim()
-        if (!text.isNullOrBlank()) {
-            candidates.add(text)
-        }
-
-        return candidates.maxByOrNull { it.length } ?: ""
-    }
-
-    private fun extractMessagingStyleText(extras: Bundle): String {
-        @Suppress("DEPRECATION")
-        val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return ""
-        if (messages.isEmpty()) return ""
-
-        val sb = StringBuilder()
-        for (item in messages) {
-            if (item is Bundle) {
-                val text = item.getCharSequence("text")?.toString()?.trim()
-                val sender = item.getCharSequence("sender")?.toString()?.trim()
-                if (!text.isNullOrBlank()) {
-                    if (sb.isNotEmpty()) sb.append("\n")
-                    if (!sender.isNullOrBlank()) {
-                        sb.append(sender).append(": ")
-                    }
-                    sb.append(text)
-                }
+        for (p in prefixes) {
+            val colonSpace = "$p: "
+            val colon = "$p:"
+            if (trimmed.startsWith(colonSpace, ignoreCase = true)) {
+                trimmed = trimmed.substring(colonSpace.length).trim()
+            } else if (trimmed.startsWith(colon, ignoreCase = true)) {
+                trimmed = trimmed.substring(colon.length).trim()
             }
         }
-        return sb.toString().trim()
+        return trimmed
+    }
+
+    private fun extractRawLines(extras: Bundle): List<String> {
+        val lines = mutableListOf<String>()
+
+        // 1. MessagingStyle
+        @Suppress("DEPRECATION")
+        val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+        if (!messages.isNullOrEmpty()) {
+            for (item in messages) {
+                if (item is Bundle) {
+                    val text = item.getCharSequence("text")?.toString()?.trim()
+                    if (!text.isNullOrBlank()) {
+                        lines.add(text)
+                    }
+                }
+            }
+            if (lines.isNotEmpty()) return lines
+        }
+
+        // 2. InboxStyle (EXTRA_TEXT_LINES)
+        val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+        if (!textLines.isNullOrEmpty()) {
+            for (tl in textLines) {
+                val str = tl?.toString()?.trim()
+                if (!str.isNullOrBlank()) {
+                    lines.add(str)
+                }
+            }
+            if (lines.isNotEmpty()) return lines
+        }
+
+        // 3. EXTRA_BIG_TEXT or EXTRA_TEXT
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim()
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim()
+        val fallback = bigText?.ifBlank { null } ?: text?.ifBlank { null } ?: ""
+        if (fallback.isNotBlank()) {
+            lines.addAll(fallback.split("\n").map { it.trim() }.filter { it.isNotBlank() })
+        }
+
+        return lines
     }
 
     private fun checkIsVideoMessage(title: String, content: String): Boolean {
@@ -360,12 +413,15 @@ class NotifLoggerService : NotificationListenerService() {
 
     private fun checkIsRecallNotice(content: String): Boolean {
         val lower = content.lowercase(Locale.ROOT)
-        return lower.contains("thu hồi một tin nhắn") ||
-                lower.contains("thu hồi tin nhắn") ||
-                lower.contains("đã thu hồi") ||
+        return lower.contains("đã thu hồi một tin nhắn") ||
+                lower.contains("đã thu hồi tin nhắn") ||
                 lower.contains("tin nhắn đã bị thu hồi") ||
+                lower.contains("vừa thu hồi một tin nhắn") ||
+                lower.contains("thu hồi một tin nhắn") ||
+                lower.contains("thu hồi tin nhắn") ||
                 lower.contains("unsent a message") ||
-                lower.contains("removed a message")
+                lower.contains("removed a message") ||
+                lower.contains("recalled a message")
     }
 
     private fun startSilentForeground() {

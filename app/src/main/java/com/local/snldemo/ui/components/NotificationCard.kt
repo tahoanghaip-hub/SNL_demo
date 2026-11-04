@@ -133,14 +133,12 @@ fun NotificationCard(
     item: NotificationEntity,
     showAppBadge: Boolean = false,
     onToggleStar: () -> Unit,
-    onSaveImage: (String) -> Unit,
     onOpenApp: () -> Unit,
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
     val strings = LocalAppStrings.current
     val clipboardManager = LocalClipboardManager.current
-    var showFullImageDialog by remember { mutableStateOf(false) }
 
     val formattedTime = remember(item.timestamp) {
         SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date(item.timestamp))
@@ -230,22 +228,7 @@ fun NotificationCard(
                         )
                     }
 
-                    // 2. Save Image Button (Only visible if image attachment exists)
-                    if (!item.imageAttachmentPath.isNullOrBlank()) {
-                        IconButton(
-                            onClick = { onSaveImage(item.imageAttachmentPath) },
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = strings.actionSaveImage,
-                                tint = Color(0xFF00D2D3),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-
-                    // 3. Star / Pin Button
+                    // 2. Star / Pin Button
                     IconButton(
                         onClick = onToggleStar,
                         modifier = Modifier.size(34.dp)
@@ -258,7 +241,7 @@ fun NotificationCard(
                         )
                     }
 
-                    // 4. Open Target App Button
+                    // 3. Open Target App Button
                     IconButton(
                         onClick = onOpenApp,
                         modifier = Modifier.size(34.dp)
@@ -271,7 +254,7 @@ fun NotificationCard(
                         )
                     }
 
-                    // 5. Delete Single Notification Button
+                    // 4. Delete Single Notification Button
                     IconButton(
                         onClick = onDelete,
                         modifier = Modifier.size(34.dp)
@@ -379,85 +362,6 @@ fun NotificationCard(
                         }
                 }
             )
-
-            // Attached Picture Preview
-            if (!item.imageAttachmentPath.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF1F1F2C),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 220.dp)
-                        .clickable { showFullImageDialog = true }
-                ) {
-                    LocalFileImage(
-                        path = item.imageAttachmentPath,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 220.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
-        }
-    }
-
-    // Full-Screen Image Dialog with 1-Click Save to Gallery
-    if (showFullImageDialog && !item.imageAttachmentPath.isNullOrBlank()) {
-        Dialog(
-            onDismissRequest = { showFullImageDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = Color.Black.copy(alpha = 0.95f)
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    LocalFileImage(
-                        path = item.imageAttachmentPath,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-
-                    // Top Action Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { showFullImageDialog = false },
-                            modifier = Modifier
-                                .background(Color(0x80000000), CircleShape)
-                                .size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = strings.btnCancel,
-                                tint = Color.White
-                            )
-                        }
-
-                        Button(
-                            onClick = {
-                                onSaveImage(item.imageAttachmentPath)
-                                showFullImageDialog = false
-                            },
-                            shape = RoundedCornerShape(20.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = strings.actionSaveImage)
-                        }
-                    }
-                }
-            }
         }
     }
 }

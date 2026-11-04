@@ -28,6 +28,15 @@ interface NotificationDao {
     @Query("UPDATE notifications SET isRemoved = 1, removedAt = :removedAt WHERE sbnKey = :sbnKey AND isRemoved = 0")
     suspend fun markAsRemovedByKey(sbnKey: String, removedAt: Long)
 
+    @Query("SELECT * FROM notifications WHERE packageName = :pkg AND senderName = :sender ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentNotificationsForSender(pkg: String, sender: String, limit: Int = 10): List<NotificationEntity>
+
+    @Query("UPDATE notifications SET isRemoved = 1, removedAt = :removedAt WHERE id = (SELECT id FROM notifications WHERE packageName = :pkg AND senderName = :sender AND isRemoved = 0 ORDER BY timestamp DESC LIMIT 1)")
+    suspend fun markLatestSenderMessageAsRemoved(pkg: String, sender: String, removedAt: Long): Int
+
+    @Query("UPDATE notifications SET isRemoved = 0, removedAt = NULL WHERE isRemoved = 1")
+    suspend fun clearAllRemovedFlags()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAppMetadata(meta: AppMetadataEntity)
 

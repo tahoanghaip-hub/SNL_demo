@@ -44,6 +44,12 @@ class PreferenceManager(context: Context) {
             _foregroundSilentNotifEnabledFlow.value = value
         }
 
+    var hasCleanedFalseRecallsV2: Boolean
+        get() = prefs.getBoolean(KEY_HAS_CLEANED_FALSE_RECALLS_V2, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_HAS_CLEANED_FALSE_RECALLS_V2, value).apply()
+        }
+
     var currentLanguage: AppLanguage
         get() = AppLanguage.fromCode(languageCode)
         set(value) {
@@ -55,6 +61,7 @@ class PreferenceManager(context: Context) {
         const val KEY_LANGUAGE_CODE = "language_code"
         const val KEY_BACKGROUND_ENABLED = "is_background_enabled"
         const val KEY_FOREGROUND_SILENT_NOTIF_ENABLED = "is_foreground_silent_notif_enabled"
+        const val KEY_HAS_CLEANED_FALSE_RECALLS_V2 = "has_cleaned_false_recalls_v2"
         const val DEFAULT_LANGUAGE = "vi"
 
         @Volatile

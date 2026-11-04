@@ -826,21 +826,21 @@ fun AppStorageRowCard(
                 trackColor = Color(0xFF242434)
             )
 
-            // Subtitle metrics breakdown
+            // Subtitle metrics breakdown (Clean notification count, recalled count, and total storage)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "${detail.notificationCount} TB" +
-                            if (detail.removedCount > 0) " (${detail.removedCount} recalled)" else "",
+                            if (detail.removedCount > 0) " (${detail.removedCount} ${strings.badgeRemoved.lowercase()})" else "",
                     fontSize = 11.sp,
                     color = Color(0xFFA4B0BE)
                 )
 
                 Text(
-                    text = "${strings.textDbSize}: ${StorageHelper.formatBytes(detail.textBytes)} | " +
-                            "${strings.mediaSize}: ${StorageHelper.formatBytes(detail.mediaBytes)}",
+                    text = "${strings.totalSpace}: ${StorageHelper.formatBytes(detail.totalBytes)}",
                     fontSize = 11.sp,
                     color = Color(0xFF8E8E9F)
                 )
